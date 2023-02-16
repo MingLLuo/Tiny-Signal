@@ -16,7 +16,16 @@ using namespace CryptoPP;
  * @return `DHParams_Message` object that stores Diffie-Hellman parameters
  */
 DHParams_Message CryptoDriver::DH_generate_params() {
-  // TODO: implement me!
+  CryptoPP::AutoSeededRandomPool prng;
+  CryptoPP::PrimeAndGenerator pr;
+  CryptoPP::Integer p,q,g;
+  pr.Generate(1,prng, 512, 511);
+
+  DHParams_Message dhm;
+  dhm.p = pr.Prime();
+  dhm.q = pr.SubPrime();
+  dhm.g = pr.Generator();
+  return dhm;
 }
 
 /**
@@ -29,7 +38,14 @@ DHParams_Message CryptoDriver::DH_generate_params() {
  */
 std::tuple<DH, SecByteBlock, SecByteBlock>
 CryptoDriver::DH_initialize(const DHParams_Message &DH_params) {
-  // TODO: implement me!
+  DH dh;
+  dh.AccessGroupParameters().Initialize(DH_params.p, DH_params.q, DH_params.g);
+  SecByteBlock private_value(dh.PrivateKeyLength());
+  SecByteBlock public_value(dh.PublicKeyLength());
+
+  CryptoPP::AutoSeededRandomPool prng;
+  dh.GenerateKeyPair(prng, private_value, public_value);
+  return std::make_tuple(dh, private_value, public_value);
 }
 
 /**
@@ -45,7 +61,11 @@ CryptoDriver::DH_initialize(const DHParams_Message &DH_params) {
 SecByteBlock CryptoDriver::DH_generate_shared_key(
     const DH &DH_obj, const SecByteBlock &DH_private_value,
     const SecByteBlock &DH_other_public_value) {
-  // TODO: implement me!
+    SecByteBlock shared_value(DH_obj.AgreedValueLength());
+    if (!DH_obj.Agree(shared_value, DH_private_value, DH_other_public_value)) {
+        throw std::runtime_error("Fail generate shared secret!");
+    }
+    return shared_value;
 }
 
 /**
@@ -61,7 +81,13 @@ SecByteBlock CryptoDriver::AES_generate_key(const SecByteBlock &DH_shared_key) {
   std::string aes_salt_str("salt0000");
   SecByteBlock aes_salt((const unsigned char *)(aes_salt_str.data()),
                         aes_salt_str.size());
-  // TODO: implement me!
+  SecByteBlock aes_value(AES::DEFAULT_KEYLENGTH);
+  HKDF<SHA256> hkdf;
+  hkdf.DeriveKey(aes_value, aes_value.size(),
+                 DH_shared_key, DH_shared_key.size(),
+                 aes_salt, aes_salt.size(),
+                 nullptr, 0);
+  return aes_value;
 }
 
 /**
@@ -80,7 +106,16 @@ SecByteBlock CryptoDriver::AES_generate_key(const SecByteBlock &DH_shared_key) {
 std::pair<std::string, SecByteBlock>
 CryptoDriver::AES_encrypt(SecByteBlock key, std::string plaintext) {
   try {
-    // TODO: implement me!
+    CryptoPP::AutoSeededRandomPool prng;
+    CBC_Mode<AES>::Encryption enc;
+    SecByteBlock iv(AES::BLOCKSIZE);
+    std::string cipher;
+
+    enc.GetNextIV(prng, iv);
+    enc.SetKeyWithIV(key, key.size(), iv);
+    StringSource s(plaintext, true,
+                   new StreamTransformationFilter(enc, new StringSink(cipher)));
+    return std::make_pair(cipher, iv);
   } catch (CryptoPP::Exception &e) {
     std::cerr << e.what() << std::endl;
     std::cerr << "This function was likely called with an incorrect shared key."
@@ -105,7 +140,13 @@ CryptoDriver::AES_encrypt(SecByteBlock key, std::string plaintext) {
 std::string CryptoDriver::AES_decrypt(SecByteBlock key, SecByteBlock iv,
                                       std::string ciphertext) {
   try {
-    // TODO: implement me!
+      CryptoPP::AutoSeededRandomPool prng;
+      CBC_Mode<AES>::Decryption dec;
+      std::string recover;
+      dec.SetKeyWithIV(key, key.size(), iv);
+      StringSource s(ciphertext, true,
+                     new StreamTransformationFilter(dec, new StringSink(recover)));
+      return recover;
   } catch (CryptoPP::Exception &e) {
     std::cerr << e.what() << std::endl;
     std::cerr << "This function was likely called with an incorrect shared key."
@@ -128,7 +169,13 @@ CryptoDriver::HMAC_generate_key(const SecByteBlock &DH_shared_key) {
   std::string hmac_salt_str("salt0001");
   SecByteBlock hmac_salt((const unsigned char *)(hmac_salt_str.data()),
                          hmac_salt_str.size());
-  // TODO: implement me!
+  SecByteBlock key(SHA256::BLOCKSIZE);
+  HKDF<SHA256> hkdf;
+  hkdf.DeriveKey(key, key.size(),
+                 DH_shared_key, DH_shared_key.size(),
+                 hmac_salt, hmac_salt.size(),
+                 nullptr, 0);
+  return key;
 }
 
 /**
@@ -143,7 +190,11 @@ CryptoDriver::HMAC_generate_key(const SecByteBlock &DH_shared_key) {
 std::string CryptoDriver::HMAC_generate(SecByteBlock key,
                                         std::string ciphertext) {
   try {
-    // TODO: implement me!
+    HMAC<SHA256> hmac(key, key.size());
+    std::string mac;
+    StringSource ss1(ciphertext, true,
+                     new HashFilter(hmac, new StringSink(mac)));
+    return mac;
   } catch (const CryptoPP::Exception &e) {
     std::cerr << e.what() << std::endl;
     throw std::runtime_error("CryptoDriver HMAC generation failed.");
@@ -164,5 +215,13 @@ bool CryptoDriver::HMAC_verify(SecByteBlock key, std::string ciphertext,
                                std::string mac) {
   const int flags = HashVerificationFilter::THROW_EXCEPTION |
                     HashVerificationFilter::HASH_AT_END;
-  // TODO: implement me!
+  try {
+    HMAC<SHA256> hmac(key, key.size());
+    StringSource ss2(ciphertext + mac, true,
+                 new HashVerificationFilter(hmac, nullptr, flags));
+    return true;
+  } catch (const CryptoPP::Exception &e) {
+    std::cerr << e.what() << std::endl;
+    throw std::runtime_error("CryptoDriver HMAC generation failed.");
+  }
 }

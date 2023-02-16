@@ -98,6 +98,22 @@ void Client::run(std::string command) {
  */
 void Client::HandleKeyExchange(std::string command) {
   // TODO: implement me!
+  if (command == "listen") {
+    // Listen for DHParams_Message
+    // Initialize DH object and keys
+    // Send your public value
+    // Listen for the other party's public value
+    // Generate DH, AES, and HMAC keys and set local variables
+
+  } else if (command == "connect") {
+    // Generate and send DHParams_Message
+    // Initialize DH object and keys
+    // Send your public value
+    // Listen for the other party's public value
+    // Generate DH, AES, and HMAC keys and set local variables
+  } else {
+    throw std::runtime_error("Invalid command!");
+  }
 }
 
 /**
