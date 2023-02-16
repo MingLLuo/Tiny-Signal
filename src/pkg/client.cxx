@@ -37,6 +37,12 @@ void Client::prepare_keys(CryptoPP::DH DH_obj,
                           CryptoPP::SecByteBlock DH_private_value,
                           CryptoPP::SecByteBlock DH_other_public_value) {
   // TODO: implement me!
+  CryptoDriver cd;
+  SecByteBlock shared_key = cd.DH_generate_shared_key(DH_obj, DH_private_value, DH_other_public_value);
+  this->AES_key = cd.AES_generate_key(shared_key);
+  this->HMAC_key = cd.HMAC_generate_key(shared_key);
+  this->DH_current_private_value = DH_private_value;
+  this->DH_switched = false;
 }
 
 /**
@@ -49,8 +55,18 @@ Message_Message Client::send(std::string plaintext) {
   // Grab the lock to avoid race conditions between the receive and send threads
   // Lock will automatically release at the end of the function.
   std::unique_lock<std::mutex> lck(this->mtx);
-
-  // TODO: implement me!
+  CryptoDriver cd;
+  auto dhT = cd.DH_initialize(this->DH_params);
+  if (this->DH_switched) {
+      prepare_keys(std::get<0>(dhT), DH_current_private_value, DH_last_other_public_value);
+  }
+  auto p = cd.AES_encrypt(this->AES_key, plaintext);
+  Message_Message ms;
+  ms.ciphertext = p.first;
+  ms.iv = p.second;
+  ms.public_value = this->DH_current_public_value;
+  ms.mac = cd.HMAC_generate(this->HMAC_key, ms.ciphertext);
+  return ms;
 }
 
 /**
@@ -63,8 +79,17 @@ std::pair<std::string, bool> Client::receive(Message_Message ciphertext) {
   // Grab the lock to avoid race conditions between the receive and send threads
   // Lock will automatically release at the end of the function.
   std::unique_lock<std::mutex> lck(this->mtx);
-
-  // TODO: implement me!
+  CryptoDriver cd;
+  auto dhT = cd.DH_initialize(this->DH_params);
+  std::string plaintext;
+  plaintext = cd.AES_decrypt(ciphertext.public_value, ciphertext.iv, ciphertext.ciphertext);
+  bool valid;
+  try {
+      valid = cd.HMAC_verify(ciphertext.public_value, ciphertext.ciphertext, ciphertext.mac);
+  } catch (std::runtime_error &e) {
+      valid = false;
+  }
+  return std::make_pair(plaintext, valid);
 }
 
 /**
@@ -98,19 +123,67 @@ void Client::run(std::string command) {
  */
 void Client::HandleKeyExchange(std::string command) {
   // TODO: implement me!
+  CryptoDriver cd;
   if (command == "listen") {
     // Listen for DHParams_Message
     // Initialize DH object and keys
     // Send your public value
     // Listen for the other party's public value
     // Generate DH, AES, and HMAC keys and set local variables
+    std::vector<unsigned char> dpm_str = this->network_driver->read();
+    DHParams_Message dpm;
+    dpm.deserialize(dpm_str);
+    auto tup = cd.DH_initialize(dpm);
+    this->DH_params = dpm;
+    SecByteBlock shared_val = cd.DH_generate_shared_key(std::get<0>(tup), std::get<1>(tup), std::get<2>(tup));
+    this->AES_key = cd.AES_generate_key(shared_val);
+    this->HMAC_key = cd.HMAC_generate_key(shared_val);
+    this->DH_current_private_value = std::get<1>(tup);
+    this->DH_current_public_value = std::get<2>(tup);
 
+    std::vector<unsigned char> data1;
+    data1.insert(data1.end(), this->DH_current_public_value.begin(), this->DH_current_public_value.end());
+    this->network_driver->send(data1);
+
+    std::vector<unsigned char> other_pub_val = this->network_driver->read();
+    std::string str;
+    for (auto i : other_pub_val) {
+        str += i;
+    }
+    this->DH_last_other_public_value = string_to_byteblock(str);
   } else if (command == "connect") {
     // Generate and send DHParams_Message
     // Initialize DH object and keys
     // Send your public value
     // Listen for the other party's public value
     // Generate DH, AES, and HMAC keys and set local variables
+    DHParams_Message dpm = cd.DH_generate_params();
+    auto tup = cd.DH_initialize(dpm);
+    this->DH_params = dpm;
+    SecByteBlock shared_val = cd.DH_generate_shared_key(std::get<0>(tup), std::get<1>(tup), std::get<2>(tup));
+    this->AES_key = cd.AES_generate_key(shared_val);
+    this->HMAC_key = cd.HMAC_generate_key(shared_val);
+    this->DH_current_private_value = std::get<1>(tup);
+    this->DH_current_public_value = std::get<2>(tup);
+    this->DH_last_other_public_value = std::get<2>(tup);
+    this->DH_switched = false;
+
+    std::vector<unsigned char> data0;
+    dpm.serialize(data0);
+    this->network_driver->send(data0);
+    
+    std::vector<unsigned char> data1;
+    std::string public_value = byteblock_to_string(this->DH_current_public_value);
+    data1.insert(data1.end(), public_value.begin(), public_value.end());
+    
+    this->network_driver->send(data1);
+    std::vector<unsigned char> other_public_value_vec = this->network_driver->read();
+    std::string other_public_value;
+    for (auto i : other_public_value_vec) {
+        other_public_value += i;
+    }
+    this->DH_last_other_public_value = string_to_byteblock(other_public_value);
+
   } else {
     throw std::runtime_error("Invalid command!");
   }
