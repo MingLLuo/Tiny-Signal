@@ -58,6 +58,7 @@ Message_Message Client::send(std::string plaintext) {
   CryptoDriver cd;
   auto dhT = cd.DH_initialize(this->DH_params);
   if (this->DH_switched) {
+
       prepare_keys(std::get<0>(dhT), DH_current_private_value, DH_last_other_public_value);
   }
   auto p = cd.AES_encrypt(this->AES_key, plaintext);
@@ -65,7 +66,7 @@ Message_Message Client::send(std::string plaintext) {
   ms.ciphertext = p.first;
   ms.iv = p.second;
   ms.public_value = this->DH_current_public_value;
-  ms.mac = cd.HMAC_generate(this->HMAC_key, ms.ciphertext);
+  ms.mac = cd.HMAC_generate(this->HMAC_key, concat_msg_fields(ms.iv, ms.public_value, ms.ciphertext));
   return ms;
 }
 
@@ -82,10 +83,15 @@ std::pair<std::string, bool> Client::receive(Message_Message ciphertext) {
   CryptoDriver cd;
   auto dhT = cd.DH_initialize(this->DH_params);
   std::string plaintext;
-  plaintext = cd.AES_decrypt(this->AES_key, ciphertext.iv, ciphertext.ciphertext);
   bool valid;
   try {
-      valid = cd.HMAC_verify(this->HMAC_key, ciphertext.ciphertext, ciphertext.mac);
+      plaintext = cd.AES_decrypt(this->AES_key,
+                                 ciphertext.iv,
+                                 ciphertext.ciphertext);
+      valid = cd.HMAC_verify(this->HMAC_key,
+                             concat_msg_fields(ciphertext.iv, ciphertext.public_value, ciphertext.ciphertext),
+                             ciphertext.mac);
+      this->DH_switched = true;
   } catch (std::runtime_error &e) {
       valid = false;
   }
@@ -137,7 +143,6 @@ void Client::HandleKeyExchange(std::string command) {
     auto tup = cd.DH_initialize(dpm);
     this->DH_params = dpm;
     SecByteBlock shared_val = cd.DH_generate_shared_key(std::get<0>(tup), std::get<1>(tup), std::get<2>(tup));
-    this->HMAC_key = cd.HMAC_generate_key(shared_val);
     this->DH_current_private_value = std::get<1>(tup);
     this->DH_current_public_value = std::get<2>(tup);
 
@@ -152,6 +157,7 @@ void Client::HandleKeyExchange(std::string command) {
 
     auto shared = cd.DH_generate_shared_key(std::get<0>(tup), std::get<1>(tup), this->DH_last_other_public_value);
     this->AES_key = cd.AES_generate_key(shared);
+    this->HMAC_key = cd.HMAC_generate_key(shared);
 
   } else if (command == "connect") {
     // Generate and send DHParams_Message
@@ -163,7 +169,6 @@ void Client::HandleKeyExchange(std::string command) {
     auto tup = cd.DH_initialize(dpm);
     this->DH_params = dpm;
     SecByteBlock shared_val = cd.DH_generate_shared_key(std::get<0>(tup), std::get<1>(tup), std::get<2>(tup));
-    this->HMAC_key = cd.HMAC_generate_key(shared_val);
     this->DH_current_private_value = std::get<1>(tup);
     this->DH_current_public_value = std::get<2>(tup);
     this->DH_switched = false;
@@ -185,6 +190,7 @@ void Client::HandleKeyExchange(std::string command) {
 
     auto shared = cd.DH_generate_shared_key(std::get<0>(tup), std::get<1>(tup), this->DH_last_other_public_value);
     this->AES_key = cd.AES_generate_key(shared);
+    this->HMAC_key = cd.HMAC_generate_key(shared);
 
   } else {
     throw std::runtime_error("Invalid command!");
