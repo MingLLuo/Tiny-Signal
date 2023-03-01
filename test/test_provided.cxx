@@ -3,6 +3,7 @@
 #include "../include/pkg/client.hpp"
 #include "../include/drivers/crypto_driver.hpp"
 #include "../include-shared/util.hpp"
+#include <iostream>
 
 TEST_CASE("DH Test1") {
     CryptoDriver cd;
@@ -12,6 +13,12 @@ TEST_CASE("DH Test1") {
     std::tuple<DH, SecByteBlock, SecByteBlock>
             dh2 = cd.DH_initialize(dh_params);
 
+        // std::cout << "dh1: " << std::endl;
+        // std::cout << "pub: " << byteblock_to_string(std::get<1>(dh1)) << std::endl;
+        // std::cout << "priv: " << byteblock_to_string(std::get<2>(dh1)) << std::endl;
+        // std::cout << "dh2: " << std::endl;
+        // std::cout << "pub: " << byteblock_to_string(std::get<1>(dh2)) << std::endl;
+        // std::cout << "priv: " << byteblock_to_string(std::get<2>(dh2)) << std::endl;
     SecByteBlock dh1_shared_key = cd.DH_generate_shared_key(std::get<0>(dh1), std::get<1>(dh1), std::get<2>(dh2));
     SecByteBlock dh2_shared_key = cd.DH_generate_shared_key(std::get<0>(dh2), std::get<1>(dh2), std::get<2>(dh1));
     CHECK(byteblock_to_string(dh1_shared_key) == byteblock_to_string(dh2_shared_key));
