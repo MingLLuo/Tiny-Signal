@@ -74,5 +74,6 @@
     "unordered_map": "cpp",
     "algorithm": "cpp",
     "functional": "cpp"
-  }
+  },
+  "cmake.configureOnOpen": true
 }

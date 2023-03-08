@@ -57,8 +57,9 @@ Message_Message Client::send(std::string plaintext) {
   std::unique_lock<std::mutex> lck(this->mtx);
   CryptoDriver cd;
   auto dhT = cd.DH_initialize(this->DH_params);
-  if (this->DH_switched) {
-
+  std::cout << "DH_switch" << this->DH_switched << std::endl;
+  if (this->DH_switched != 0) {
+      std::cout << "1\n";
       prepare_keys(std::get<0>(dhT), DH_current_private_value, DH_last_other_public_value);
   }
   auto p = cd.AES_encrypt(this->AES_key, plaintext);
@@ -83,6 +84,7 @@ std::pair<std::string, bool> Client::receive(Message_Message ciphertext) {
   CryptoDriver cd;
   auto dhT = cd.DH_initialize(this->DH_params);
   std::string plaintext;
+  print_key_as_hex(ciphertext.public_value);
   bool valid;
   try {
       plaintext = cd.AES_decrypt(this->AES_key,
@@ -91,7 +93,11 @@ std::pair<std::string, bool> Client::receive(Message_Message ciphertext) {
       valid = cd.HMAC_verify(this->HMAC_key,
                              concat_msg_fields(ciphertext.iv, ciphertext.public_value, ciphertext.ciphertext),
                              ciphertext.mac);
+      std::cout << "plaintext: " << plaintext << std::endl;
+      this->DH_last_other_public_value = ciphertext.public_value;
+      std::cout << "DH_switched: " << this->DH_switched << std::endl;
       this->DH_switched = true;
+      std::cout << "DH_switched2: " << this->DH_switched << std::endl;
   } catch (std::runtime_error &e) {
       valid = false;
   }
@@ -145,7 +151,7 @@ void Client::HandleKeyExchange(std::string command) {
     SecByteBlock shared_val = cd.DH_generate_shared_key(std::get<0>(tup), std::get<1>(tup), std::get<2>(tup));
     this->DH_current_private_value = std::get<1>(tup);
     this->DH_current_public_value = std::get<2>(tup);
-
+    this->DH_switched = false;
     // send public value
     std::vector<unsigned char> data1 = str2chvec(byteblock_to_string(this->DH_current_public_value));
     this->network_driver->send(data1);
